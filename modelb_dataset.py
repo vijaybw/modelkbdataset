@@ -1,9 +1,17 @@
+# libraries
 import pandas as pd
 import numpy as np
 from keras.utils import np_utils
 from sklearn.preprocessing import LabelEncoder
 from flask_table import Table, Col
+import networkx as nx
+import os
+PROCESSED_FOLDER = os.path.dirname(os.path.abspath(__file__)) + '/processed/'
+import matplotlib.pyplot as plt
 #Infer Data Types for Individual Columns in DataFrame
+import app
+
+
 def infer_df(df, hard_mode=False, float_to_int=False, mf=None):
 
     # set multiplication factor
@@ -50,13 +58,19 @@ def encode_category(df, column_name):
     encoded_X = encoder.transform(df[column_name])
     df[column_name] = np_utils.to_categorical(encoded_X)
 
-def process_csv(file_name):
-    df = pd.read_csv(file_name, header=0)
+def process_csv(file_path, file_name):
+    df = pd.read_csv(file_path, header=0)
     print(df.columns, sep='\n\n')
     infer_df(df)
-    for c in df.columns:
-        if c == 'category':
-            encode_category(df,c)
+
+    # Get a Dictionary containing the pairs of column names & data type objects.
+    dataTypeDict = dict(df.dtypes)
+
+    print('Data type of each column of Dataframe :')
+    print(dataTypeDict)
+
+    for c in df.select_dtypes(include=['category']):
+        encode_category(df,c)
 
     c = df.corr().abs()
     s = c.unstack()
@@ -81,8 +95,9 @@ def process_csv(file_name):
     feat_importances = pd.Series(model.feature_importances_, index=X.columns)
     top_10_features = feat_importances.nlargest(10)
     list_of_features = []
-    for x in top_10_features:
-        list_of_features.append(x)
+    for rownum, (indx, val) in enumerate(top_10_features.iteritems()):
+        list_of_features.append(indx)
+        print('row number: ', rownum, 'index: ', indx, 'value: ', val)
     # Declare your table
     class ItemTable(Table):
         one = Col('Feature 1')
@@ -94,6 +109,11 @@ def process_csv(file_name):
             self.one = name_one
             self.two = name_two
             self.cvalue = round(correlation_value, 4)
+
+    # Build your graph
+    G = nx.Graph()
+    G.add_nodes_from(list_of_features)
+
     # Populate the table
     list_of_entries = []
     for items in so.iteritems():
@@ -105,9 +125,16 @@ def process_csv(file_name):
                 x = items[0][1]
                 y = items[0][0]
             if (x + "-" + y) not in list_of_processed:
-                list_of_entries.append(Item(x, y, items[1]))
-                list_of_processed.append(x + "-" + y)
+                if x in list_of_features and y in list_of_features:
+                    G.add_edge(x, y, weight=round(items[1],4))
+                    list_of_entries.append(Item(x, y, items[1]))
+                    list_of_processed.append(x + "-" + y)
     table = ItemTable(list_of_entries)
+
+    # Plot it
+    nx.draw(G, with_labels=True)
+    plt.savefig(PROCESSED_FOLDER + str(file_name).replace(".csv","") + ".png", format="PNG")
+    # plt.savefig(app.config['PROCESSED_FOLDER'] + file_name + ".png", format="PNG")
     # Print the html
-    return table.__html__()
+    return [table.__html__(), plt.figimage]
 # process_csv('adult.data')
